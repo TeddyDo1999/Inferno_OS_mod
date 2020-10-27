@@ -31,6 +31,7 @@ struct Pool
 	Lock	l;
 	Bhdr*	root;
 	Bhdr*	chain;
+	Bhdr* slab[8];
 	ulong	nalloc;
 	ulong	nfree;
 	int	nbrk;
@@ -62,6 +63,8 @@ static void _auditmemloc(char *, void *);
 void (*auditmemloc)(char *, void *) = _auditmemloc;
 static void _poolfault(void *, char *, ulong);
 void (*poolfault)(void *, char *, ulong) = _poolfault;
+unsigned int nextPowerOf2(unsigned int n);
+void printSlab(Bhdr **slab);
 
 /*	non tracing
  *
@@ -157,6 +160,9 @@ void
 pooldel(Pool *p, Bhdr *t)
 {
 	Bhdr *s, *f, *rp, *q;
+	if (t->size < 4096) {
+		print("Got here by mistake");
+	}
 
 	if(t->parent == nil && p->root != t) {
 		t->prev->fwd = t->fwd;
@@ -246,36 +252,71 @@ pooladd(Pool *p, Bhdr *q)
 	q->parent = nil;
 	q->fwd = q;
 	q->prev = q;
-
-	t = p->root;
-	if(t == nil) {
-		p->root = q;
-		return;
-	}
-
 	size = q->size;
+	if ((q->size <= 4096) && (q->size > 32)) {
+		// /*add to slab */
+		print("Adding %d bytes to slab\n", size);
+		int idx = log2(q->size) - 5;
+		print("Idx is: %d\n", idx);
+		q->prev = nil;
+		q->fwd = nil;
+		if (p->slab[idx] != nil) {
+			print("Block available in slab[%d]!", idx);
+			q->fwd = p->slab[idx]->fwd;
+			p->slab[idx]->fwd = q; 
+			//return;
+		} else {
+			print("Block not available in slab[%d]\n", idx);
+			p->slab[idx] = q;
+		}
+		
 
-	tp = nil;
-	while(t != nil) {
-		if(size == t->size) {
-			q->prev = t->prev;
-			q->prev->fwd = q;
-			q->fwd = t;
-			t->prev = q;
+		/*add to slab */
+		// print("Adding %d bytes to slab\n", q->size);
+		// int idx = log2(q->size) - 5;
+		// print("Idx is: %d\n", idx);
+		// //if (p->slab[idx] != nil) {
+		// //	print("Block available in slab[%d]!\n", idx);
+		// q->fwd = p->slab[idx];
+		// q->prev = nil;
+		// p->slab[idx] = q;
+
+		// // } else {
+		// // 	// print("Block not available in slab[%d]\n", idx);
+		// // 	q->prev = nil;
+		// // 	q->fwd = nil;
+		// // 	p->slab[idx] = q;	
+		// //}
+		printSlab(p->slab);
+	} else {
+		t = p->root;
+		if(t == nil) {
+			p->root = q;
 			return;
 		}
-		tp = t;
-		if(size < t->size)
-			t = t->left;
-		else
-			t = t->right;
-	}
 
-	q->parent = tp;
-	if(size < tp->size)
-		tp->left = q;
-	else
-		tp->right = q;
+		tp = nil;
+		while(t != nil) {
+			if(size == t->size) {
+				q->prev = t->prev; 
+				q->prev->fwd = q;
+				q->fwd = t;
+				t->prev = q;
+				return;
+			}
+			tp = t;
+			if(size < t->size)
+				t = t->left;
+			else
+				t = t->right;
+		}
+
+		q->parent = tp;
+		if(size < tp->size)
+			tp->left = q;
+		else
+			tp->right = q;
+	}
 }
 
 static void*
@@ -294,6 +335,30 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 	lock(&p->l);
 	p->nalloc++;
 
+	/*check if belongs to slab case */
+	if (size <= 4096) {
+		print("Begin allocating for %d from slab\n", size);
+		int sz = nextPowerOf2(size);
+		print("Finding %d in slab\n", sz);
+		t = p->slab[sz - 5];
+		if (t != nil) {
+			/*do alloc*/
+			print("found %d, allocating from slab\n", t->size);
+			t->magic = MAGIC_A;
+			p->slab[sz - 5] = t->fwd;
+			t->fwd = nil;
+			p->cursize += t->size;
+			if(p->cursize > p->hw)
+				p->hw = p->cursize;
+			printSlab(p->slab);
+			unlock(&p->l);
+			if(p->monitor)
+				MM(p->pnum, pc, (ulong)B2D(t), size);
+			return B2D(t);
+		}
+	}
+
+	print("No block from slab available, do tree! \n\n");
 	t = p->root;
 	q = nil;
 	while(t) {
@@ -407,6 +472,7 @@ dopoolalloc(Pool *p, ulong asize, ulong pc)
 		p->chain->csize += alloc;
 		p->cursize += alloc;
 		unlock(&p->l);
+		print("Calling backward merge\n");
 		poolfree(p, B2D(q));		/* for backward merge */
 		return poolalloc(p, osize);
 	}
@@ -465,28 +531,46 @@ poolfree(Pool *p, void *v)
 	lock(&p->l);
 	p->nfree++;
 	p->cursize -= b->size;
-	c = B2NB(b);
-	if(c->magic == MAGIC_F) {	/* Join forward */
-		if(c == ptr)
-			ptr = b;
-		pooldel(p, c);
-		c->magic = 0;
-		b->size += c->size;
-		B2T(b)->hdr = b;
-	}
+	
+	//print("Poolfree: blocksize %d \n", b->size);
+	
+	if (b->size < 4096) {
+		print("Freeing block to slab\n");
+		pooladd(p, b);
+		unlock(&p->l);
+		//printSlab(p->slab);
+		return;
+	} else {
+		print("freeing block to tree");
 
-	c = B2PT(b)->hdr;
-	if(c->magic == MAGIC_F) {	/* Join backward */
-		if(b == ptr)
-			ptr = c;
-		pooldel(p, c);
-		b->magic = 0;
-		c->size += b->size;
-		b = c;
-		B2T(b)->hdr = b;
+		c = B2NB(b);
+		//print("Poolfree: block next to b is of size %d\n", c->size);
+		if ((c->magic == MAGIC_F) && (c->prev != nil)) {	/* Join forward */
+			print("Joining forward\n");
+			if(c == ptr)
+				ptr = b;
+			pooldel(p, c);
+			c->magic = 0;
+			b->size += c->size;
+			B2T(b)->hdr = b;
+		}
+
+		c = B2PT(b)->hdr;
+		//print("Poolfree: block previous to b is of size %d\n", c->size);
+		if((c->magic == MAGIC_F) && (c->prev != nil)) {	/* Join backward */
+			print("Joining backward\n");
+			if(b == ptr)
+				ptr = c;
+			pooldel(p, c);
+			b->magic = 0;
+			c->size += b->size;
+			b = c;
+			B2T(b)->hdr = b;
+		}
+		pooladd(p, b);
+		unlock(&p->l);
 	}
-	pooladd(p, b);
-	unlock(&p->l);
+	
 }
 
 void *
@@ -499,10 +583,13 @@ poolrealloc(Pool *p, void *v, ulong size)
 	if(size >= 1024*1024*1024)	/* for sanity and to avoid overflow */
 		return nil;
 	if(size == 0){
+		print("Calling poolfree from poolrealloc\n");
 		poolfree(p, v);
 		return nil;
 	}
+
 	SET(osize);
+	
 	if(v != nil){
 		lock(&p->l);
 		D2B(b, v);
@@ -514,6 +601,7 @@ poolrealloc(Pool *p, void *v, ulong size)
 	nv = poolalloc(p, size);
 	if(nv != nil && v != nil){
 		memmove(nv, v, osize);
+		print("Calling poolfree again from realloc\n");
 		poolfree(p, v);
 	}
 	return nv;
@@ -694,6 +782,7 @@ free(void *v)
 		D2B(b, v);
 		ML(v, 0, 0);
 		MM(1<<8|0, getcallerpc(&v), (ulong)((ulong*)v+Npadlong), b->size);
+		print("Calling poolfree from free()");
 		poolfree(mainmem, v);
 	}
 }
@@ -858,6 +947,7 @@ poolcompact(Pool *pool)
 				}
 				end->size = nb;
 				B2T(end)->hdr = end;
+				print("Calling pooladd from poolcompact\n");
 				pooladd(pool, end);
 			}
 			base = base->clink;
@@ -1033,3 +1123,54 @@ poolaudit(char*(*audit)(int, Bhdr *))
 	return r;
 }
 
+
+/* n --> 2^k <= n such that 2^k is smallest, returns k */
+unsigned int nextPowerOf2(unsigned int n) 
+{ 
+	unsigned count = 0; 
+  
+	// First n in the below condition 
+	// is for the case where n is 0 
+	if (n && !(n & (n - 1))) 
+		return log2(n); 
+	
+	while( n != 0) { 
+		n >>= 1; 
+		count += 1; 
+	} 
+	
+	return count; 
+} 
+
+int checkPowerofTwo(unsigned x)
+{
+    //checks whether a number is zero or not
+    if (x == 0)
+    {
+        return 0;
+    }
+
+    //true till x is not equal to 1
+    while( x != 1)
+    {
+        //checks whether a number is divisible by 2
+        if(x % 2 != 0)
+        {
+            return 0;
+        }
+        x /= 2;
+    }
+    return 1;
+}
+
+void printSlab(Bhdr **slab) {
+	for(int i=0; i < 8; i++) {
+		print("%d: ", (1 << (i+5)) );
+		Bhdr *head = slab[i];
+		while(head != nil) {
+			print("%d -> ", slab[i]->size);
+			head = head->fwd;
+		}
+		print("\n");
+	}
+}

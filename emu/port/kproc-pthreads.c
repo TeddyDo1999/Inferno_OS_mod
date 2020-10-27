@@ -191,8 +191,10 @@ osblock(void)
 	Osdep *os;
 
 	os = up->os;
+	//print("blocked\n");
 	while(sem_wait(&os->sem))
 		{}	/* retry on signals (which shouldn't happen) */
+	//print("released\n");
 }
 
 void

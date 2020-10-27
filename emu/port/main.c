@@ -263,6 +263,7 @@ main(int argc, char *argv[])
 	if(vflag)
 		print("Inferno %s main (pid=%d) %s\n", VERSION, getpid(), opt);
 
+	print("Welcome to CS543! \n");
 	libinit(imod);
 }
 

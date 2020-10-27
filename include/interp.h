@@ -240,6 +240,8 @@ struct Progs
 
 struct Prog
 {
+	int 		nice;
+	int 		priority;	/*stores priority in which prog should be executed*/
 	REG		R;		/* Register set */
 	Prog*		link;		/* Run queue */
 	Channel*		chan;	/* Channel pointer */
@@ -248,10 +250,10 @@ struct Prog
 	char*		kill;		/* Set if prog should error */
 	char*		killstr;	/* kill string buffer when needed */
 	int		pid;		/* unique Prog id */
-	int		quanta;		/* time slice */
-	ulong	ticks;		/* time used */
+	int		quanta;		/* time slice: number of instruction to execute in time slice */
+	ulong	        ticks;		/* time used: never fully implemented */
 	int		flags;		/* error recovery flags */
-	Prog*		prev;
+	Prog*		prev;		/* all progs queue*/
 	Prog*		next;
 	Prog*	pidlink;	/* next in pid hash chain */
 	Progs*	group;	/* process group */
@@ -259,7 +261,7 @@ struct Prog
 	Prog*	grpnext;	/* next group member */
 	void*	exval;	/* current exception */
 	char*	exstr;	/* last exception */
-	void		(*addrun)(Prog*);
+	void		(*addrun)(Prog*); /* declaration for function pointers: address of function. Exactly fow methods are stored in objects */
 	void		(*xec)(Prog*);
 
 	void*		osenv;

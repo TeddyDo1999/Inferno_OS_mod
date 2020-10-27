@@ -773,24 +773,35 @@ cblock(Prog *p)
 void sortedInsert(struct Prog** head_ref, struct Prog* new_node) 
 { 
     struct Prog* current; 
+    /* Special case for the head end */
     if (*head_ref == nil) 
     { 
         new_node->link = *head_ref; 
         *head_ref = new_node; 
-    } else if  ((*head_ref)->priority > new_node->priority) {
+		//print("%d(%d) is only process in ready queue\n", new_node->pid, new_node->priority);
+    } else if  ((*head_ref)->priority >= new_node->priority) {
+		//new_node->link = (*head_ref)->link;
+		//(*head_ref)->link = new_node;
 		new_node->link = isched.runhd->link;
 		isched.runhd->link = new_node;
+		//print("%d(%d)is added in 2nd position\n", new_node->pid, new_node->priority);
 	} else { 
+        /* Locate the node before the point of insertion */
         current = *head_ref; 
-        while (current->link!=nil && current->link->priority <= new_node->priority) { 
+        while (current->link!=nil && 
+               current->link->priority < new_node->priority) 
+        { 
             current = current->link; 
         } 
-
         new_node->link = current->link; 	
 		current->link = new_node; 
 
-		if (new_node->link == nil) 
-			isched.runtl = new_node;
+		if (new_node->link == nil) {
+		isched.runtl = new_node;
+		//print("Added %d(%d) right before nil\n", new_node->pid, new_node->priority);
+		} else {
+			//print("Added %d(%d) right before %d(%d)\n", new_node->pid, new_node->priority, new_node->link->pid, new_node->link->priority);
+		}
 	} 
 
 } 
@@ -818,15 +829,14 @@ addrun(Prog *p)
 	p->state = Pready;
 	p->link = nil;
 	sortedInsert(&isched.runhd, p);
+	printQueuePrior(isched.head, isched.runhd, isched.tail);
 
-	/* if implement a round-robin style scheduler:
+	// if(isched.runhd == nil)
+	// 	isched.runhd = p;
+	// else
+	// 	isched.runtl->link = p;
 
-	if(isched.runhd == nil)
-		isched.runhd = p;
-	else
-		isched.runtl->link = p;
-
-	isched.runtl = p;  */
+	// isched.runtl = p;
 }
 
 Prog*
@@ -1144,16 +1154,21 @@ disfault(void *reg, char *msg)
 
 inline void printQueuePrior(Prog *qhead, Prog * qrunhead, Prog * qtail) {
 	Prog *x = qrunhead;
-	print("All: ");
-	while(qhead != nil) {
-		print( "%d(%d)->", qhead->pid, qhead->priority);
-		qhead = qhead->next;
-	}
+	// print("All: ");
+	// while(qhead != nil) {
+	// 	print( "%d(%d)->", qhead->pid, qhead->priority);
+	// 	qhead = qhead->next;
+	// }
 	print("\nRun: ");
 	while(x != nil) {
 		print( "%d(%d, %d)->", x->pid, x->priority, x->nice);
 		x = x->link;
 	}
+	// print("\nReverse: ");
+	// while(qtail != nil) {
+	// 	print("%d(%d, %d)->", qtail->pid, qtail->priority, qtail->nice);
+	// 	qtail = qtail->prev;
+	// }
 	print("\n\n");
 }
 
@@ -1203,7 +1218,7 @@ vmachine(void *a)
 			r->xec(r);
 			FPsave(&o->fpu);
 
-			if (count % 1) {
+			if (count % 20) {
 				int c = r->ticks/340;
 				if(c > 255) {
 					c = 255;

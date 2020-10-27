@@ -1671,6 +1671,7 @@ void
 xec(Prog *p)
 {
 	int op;
+	int instr_count=0;
 
 	R = p->R;
 	R.MP = R.M->MP;
@@ -1691,8 +1692,11 @@ xec(Prog *p)
 		dec[R.PC->add]();
 		op = R.PC->op;
 		R.PC++;
+		instr_count++;
 		optab[op]();
 	} while(--R.IC != 0);
+
+	p->ticks = p->ticks + instr_count;
 
 	p->R = R;
 }

@@ -44,7 +44,7 @@ Dirtab progdir[] =
 	"text",		{Qtext},	0,			0000,
 	"wait",		{Qwait},	0,			0400,
 	"fd",		{Qfd},		0,			0400,
-	"exception",	{Qexception},	0,	0400,
+	"exception",	{Qexception},	0,			0400,
 };
 
 enum
@@ -53,7 +53,8 @@ enum
 	CMkillgrp,
 	CMrestricted,
 	CMexceptions,
-	CMprivate
+	CMprivate,
+	CMsetnice
 };
 
 static
@@ -63,6 +64,8 @@ Cmdtab progcmd[] = {
 	CMrestricted, "restricted", 1,
 	CMexceptions, "exceptions", 2,
 	CMprivate, "private",	1,
+	CMsetnice, "setnice", 2,
+	//Add a cmd to setting "nice" value
 };
 
 enum
@@ -1072,6 +1075,9 @@ progwrite(Chan *c, void *va, long n, vlong offset)
 			break;
 		case CMprivate:
 			p->group->flags |= Pprivatemem;
+			break;
+		case CMsetnice://set nice
+			p->nice = atoi(cb->f[1]);
 			break;
 		}
 		poperror();
