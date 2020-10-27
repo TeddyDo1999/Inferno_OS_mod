@@ -1,5 +1,5 @@
 
-##README from the orginal bitbucket project, now owned by Vita Nuova
+## README from the orginal bitbucket project, now owned by Vita Nuova
 
 [  Inferno® is a distributed operating system, originally developed at Bell Labs, but now developed and maintained by Vita Nuova® as Free Software.  Applications written in Inferno's concurrent programming language, Limbo, are compiled to its portable virtual machine code (Dis), to run anywhere on a network in the portable environment that Inferno provides.  Unusually, that environment looks and acts like a complete operating system.
 
@@ -10,7 +10,7 @@ Inferno can run 'native' on various ARM, PowerPC, SPARC and x86 platforms but al
 This Bitbucket project includes source for the basic applications, Inferno itself (hosted and native), all supporting software, including the native compiler suite, essential executables and supporting files.  ]
 
 
-##README for my modifications
+## README for my modifications
 
 This repo is a modified pre-built version of the bitbucket repo from: https://bitbucket.org/inferno-os/inferno-os/src/master/
 The build configurations is listed in mkconfig. If building for another system different than the config given, please change the mkconfig file and "mk" again
